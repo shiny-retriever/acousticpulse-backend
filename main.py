@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from typing import Optional, List
+from typing import List
 from database import engine, Base, SessionLocal
 from auth import hash_password, verify_password, create_access_token, get_current_user_email
 import models
@@ -23,7 +23,7 @@ def get_current_user(email: str = Depends(get_current_user_email), db: Session =
         raise HTTPException(status_code=401, detail="User not found")
     return user
 
-
+# ---- AUTH ----
 class SignupRequest(BaseModel):
     email: str
     password: str
@@ -50,7 +50,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     token = create_access_token({"sub": user.email})
     return {"access_token": token, "token_type": "bearer"}
 
-
+# ---- MACHINES ----
 class MachineRequest(BaseModel):
     client_machine_id: int
     name: str
@@ -80,11 +80,21 @@ def create_machine(data: MachineRequest, db: Session = Depends(get_db), user: mo
 
 @app.get("/machines")
 def get_machines(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    return db.query(models.Machine).filter(models.Machine.user_id == user.id).all()
+    machines = db.query(models.Machine).filter(models.Machine.user_id == user.id).all()
+    return [
+        {
+            "id": m.id,
+            "client_machine_id": m.client_machine_id,
+            "name": m.name,
+            "location": m.location,
+            "machine_type": m.machine_type
+        }
+        for m in machines
+    ]
 
-
+# ---- CALIBRATE ----
 class CalibrateRequest(BaseModel):
-    machine_id: int  
+    machine_id: int
     label: str
     spectrum_json: str
 
@@ -103,11 +113,16 @@ def calibrate(data: CalibrateRequest, db: Session = Depends(get_db), user: model
 
 @app.get("/calibrate")
 def get_baselines(machine_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    return db.query(models.Baseline).filter(
+    baselines = db.query(models.Baseline).filter(
         models.Baseline.machine_id == machine_id,
         models.Baseline.user_id == user.id
     ).all()
+    return [
+        {"id": b.id, "machine_id": b.machine_id, "label": b.label, "spectrum_json": b.spectrum_json}
+        for b in baselines
+    ]
 
+# ---- DIAGNOSE (batch sync) ----
 class ScanEntry(BaseModel):
     client_scan_id: str
     machine_id: int
@@ -146,7 +161,19 @@ def sync_scans(data: DiagnoseSyncRequest, db: Session = Depends(get_db), user: m
 
 @app.get("/diagnose")
 def get_scans(machine_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    return db.query(models.ScanLog).filter(
+    scans = db.query(models.ScanLog).filter(
         models.ScanLog.machine_id == machine_id,
         models.ScanLog.user_id == user.id
     ).all()
+    return [
+        {
+            "client_scan_id": s.client_scan_id,
+            "machine_id": s.machine_id,
+            "baseline_id": s.baseline_id,
+            "anomaly_score": s.anomaly_score,
+            "anomaly_label": s.anomaly_label,
+            "rms_energy": s.rms_energy,
+            "dominant_frequency_hz": s.dominant_frequency_hz
+        }
+        for s in scans
+    ]
