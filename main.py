@@ -177,3 +177,17 @@ def get_scans(machine_id: int, db: Session = Depends(get_db), user: models.User 
         }
         for s in scans
     ]
+@app.delete("/machines/{machine_id}")
+def delete_machine(machine_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    machine = db.query(models.Machine).filter(
+        models.Machine.id == machine_id,
+        models.Machine.user_id == user.id
+    ).first()
+    if not machine:
+        raise HTTPException(status_code=404, detail="Machine not found")
+
+    db.query(models.ScanLog).filter(models.ScanLog.machine_id == machine_id).delete()
+    db.query(models.Baseline).filter(models.Baseline.machine_id == machine_id).delete()
+    db.delete(machine)
+    db.commit()
+    return {"status": "deleted"}    
